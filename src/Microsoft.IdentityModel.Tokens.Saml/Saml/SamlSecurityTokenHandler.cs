@@ -90,6 +90,16 @@ namespace Microsoft.IdentityModel.Tokens.Saml
         }
 
         /// <summary>
+        /// Gets or sets the SamlSubject comparer.
+        /// </summary>
+        /// <remarks>Sets cannot be null.</remarks>
+        public IEqualityComparer<SamlSubject> SamlSubjectEqualityComparer
+        {
+            get;
+            set;
+        } = new SamlSubjectEqualityComparer();
+
+        /// <summary>
         /// Gets or sets the maximum size in bytes, that a will be processed.
         /// </summary>
         /// <exception cref="ArgumentOutOfRangeException">'value' less than 1.</exception>
@@ -403,8 +413,8 @@ namespace Microsoft.IdentityModel.Tokens.Saml
         /// <param name="samlToken">A <see cref="SamlSecurityToken"/> that will be used to create the claims.</param>
         /// <param name="issuer">The value to set <see cref="Claim.Issuer"/></param>
         /// <param name="validationParameters"> Contains parameters for validating the securityToken.</param>
-        /// <returns>A <see cref="ClaimsIdentity"/> containing the claims from the <see cref="SamlSecurityToken"/>.</returns>
-        protected virtual ClaimsIdentity CreateClaimsIdentity(SamlSecurityToken samlToken, string issuer, TokenValidationParameters validationParameters)
+        /// <returns>A <see cref="IEnumerable{ClaimsIdentity}"/> containing the claims from the <see cref="SamlSecurityToken"/>.</returns>
+        protected virtual IEnumerable<ClaimsIdentity> CreateClaimsIdentities(SamlSecurityToken samlToken, string issuer, TokenValidationParameters validationParameters)
         {
             if (samlToken == null)
                 throw LogArgumentNullException(nameof(samlToken));
@@ -419,7 +429,8 @@ namespace Microsoft.IdentityModel.Tokens.Saml
                 actualIssuer = ClaimsIdentity.DefaultIssuer;
             }
 
-            return validationParameters.CreateClaimsIdentity(samlToken, actualIssuer);
+            var subjects = ProcessStatements(samlToken, actualIssuer, validationParameters);
+            return subjects;
         }
 
         /// <summary>
@@ -619,6 +630,145 @@ namespace Microsoft.IdentityModel.Tokens.Saml
             if (validationParameters.IssuerSigningKeys != null)
                 foreach (SecurityKey securityKey in validationParameters.IssuerSigningKeys)
                     yield return securityKey;
+        }
+
+        /// <summary>
+        /// Creates claims from a <see cref="SamlAttributeStatement"/>.
+        /// </summary>
+        /// <param name="statement">The <see cref="SamlAttributeStatement"/>.</param>
+        /// <param name="identity">A <see cref="ClaimsIdentity"/>.</param>
+        /// <param name="issuer">The issuer.</param>
+        protected virtual void ProcessAttributeStatement(SamlAttributeStatement statement, ClaimsIdentity identity, string issuer)
+        {
+            if (statement == null)
+                throw LogArgumentNullException(nameof(statement));
+
+            if (identity == null)
+                throw LogArgumentNullException(nameof(identity));
+
+            foreach (var attribute in statement.Attributes)
+            {
+                if (StringComparer.Ordinal.Equals(attribute.Name, ClaimTypes.Actor))
+                {
+                    // TODO - should we support nested Actors?
+                    if (identity.Actor != null)
+                        throw LogExceptionMessage(new SamlSecurityTokenException(LogMessages.IDX10512));
+
+                    SetDelegateFromAttribute(attribute, identity, issuer);
+                }
+                else
+                {
+                    // each value has same issuer
+                    string originalIssuer = attribute.OriginalIssuer ?? issuer;
+                    foreach (var value in attribute.Values)
+                    {
+                        if (value != null)
+                        {
+                            var claim = new Claim(attribute.Name, value, attribute.AttributeValueXsiType, issuer, originalIssuer);
+                            if (attribute.Name != null)
+                                claim.Properties[ClaimProperties.SamlAttributeName] = attribute.Name;
+
+                            if (attribute.Namespace != null)
+                                claim.Properties[ClaimProperties.SamlAttributeNamespace] = attribute.Namespace;
+
+                            identity.AddClaim(claim);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates claims from a <see cref="SamlAuthenticationStatement"/>.
+        /// </summary>
+        /// <param name="statement">The <see cref="SamlAuthenticationStatement"/>.</param>
+        /// <param name="identity">A <see cref="ClaimsIdentity"/>.</param>
+        /// <param name="issuer">The issuer.</param>
+        protected virtual void ProcessAuthenticationStatement(SamlAuthenticationStatement statement, ClaimsIdentity identity, string issuer)
+        {
+            if (statement == null)
+                throw LogArgumentNullException(nameof(statement));
+
+            if (identity == null)
+                throw LogArgumentNullException(nameof(identity));
+
+            identity.AddClaim(new Claim(ClaimTypes.AuthenticationMethod, statement.AuthenticationMethod, ClaimValueTypes.String, issuer));
+            identity.AddClaim(new Claim(ClaimTypes.AuthenticationInstant, XmlConvert.ToString(statement.AuthenticationInstant.ToUniversalTime(), SamlConstants.GeneratedDateTimeFormat), ClaimValueTypes.DateTime, issuer));
+        }
+
+        /// <summary>
+        /// Creates claims from a <see cref="SamlAuthorizationDecisionStatement"/>.
+        /// </summary>
+        /// <param name="statement">The <see cref="SamlAuthorizationDecisionStatement"/>.</param>
+        /// <param name="identity">A <see cref="ClaimsIdentity"/>.</param>
+        /// <param name="issuer">The issuer.</param>
+        /// <remarks>Provided for extensibility. By default no claims are created.</remarks>
+        protected virtual void ProcessAuthorizationDecisionStatement(SamlAuthorizationDecisionStatement statement, ClaimsIdentity identity, string issuer)
+        {
+        }
+
+        /// <summary>
+        /// Processes all statements to generate claims.
+        /// </summary>
+        /// <param name="samlToken">A <see cref="SamlSecurityToken"/> that will be used to create the claims.</param>
+        /// <param name="issuer">The issuer.</param>
+        /// <param name="validationParameters"> Contains parameters for validating the securityToken.</param>
+        /// <returns>A <see cref="IEnumerable{ClaimsIdentity}"/> containing the claims from the <see cref="SamlSecurityToken"/>.</returns>
+        protected virtual IEnumerable<ClaimsIdentity> ProcessStatements(SamlSecurityToken samlToken, string issuer, TokenValidationParameters validationParameters)
+        {
+            var identityDict = new Dictionary<SamlSubject, ClaimsIdentity>(SamlSubjectEqualityComparer);
+            foreach (var item in samlToken.Assertion.Statements)
+            {
+                var statement = item as SamlSubjectStatement;
+                if (statement == null)
+                    throw LogExceptionMessage(new SamlSecurityTokenException(LogMessages.IDX11515));
+
+                if (!identityDict.TryGetValue(statement.Subject, out ClaimsIdentity identity))
+                {
+                    identity = validationParameters.CreateClaimsIdentity(samlToken, issuer);
+                    ProcessSubject(statement.Subject, identity, issuer);
+                    identityDict.Add(statement.Subject, identity);
+                }
+
+                if (statement is SamlAttributeStatement attrStatement)
+                    ProcessAttributeStatement(attrStatement, identity, issuer);
+                else if (statement is SamlAuthenticationStatement authnStatement)
+                    ProcessAuthenticationStatement(authnStatement, identity, issuer);
+                else if (statement is SamlAuthorizationDecisionStatement authzStatement)
+                    ProcessAuthorizationDecisionStatement(authzStatement, identity, issuer);
+            }
+
+            return identityDict.Values;
+        }
+
+        /// <summary>
+        /// Creates subject claims from the <see cref="SamlSubject"/>.
+        /// </summary>
+        /// <param name="subject">The <see cref="SamlSubject"/>.</param>
+        /// <param name="identity">The <see cref="ClaimsIdentity"/> subject.</param>
+        /// <param name="issuer">The issuer.</param>
+        protected virtual void ProcessSubject(SamlSubject subject, ClaimsIdentity identity, string issuer)
+        {
+            if (subject == null)
+                throw LogArgumentNullException(nameof(subject));
+
+            if (identity == null)
+                throw LogArgumentNullException(nameof(identity));
+
+            if (string.IsNullOrEmpty(subject.Name) && (subject.ConfirmationMethods == null || subject.ConfirmationMethods.Count < 1))
+                throw LogExceptionMessage(new SamlSecurityTokenException(LogMessages.IDX10513));
+
+            if (!string.IsNullOrEmpty(subject.Name))
+            {
+                var claim = new Claim(ClaimTypes.NameIdentifier, subject.Name, ClaimValueTypes.String, issuer);
+                if (!string.IsNullOrEmpty(subject.NameFormat))
+                    claim.Properties[ClaimProperties.SamlNameIdentifierFormat] = subject.NameFormat;
+
+                if (!string.IsNullOrEmpty(subject.NameQualifier))
+                    claim.Properties[ClaimProperties.SamlNameIdentifierNameQualifier] = subject.NameQualifier;
+
+                identity.AddClaim(claim);
+            }
         }
 
         /// <summary>
@@ -1014,13 +1164,18 @@ namespace Microsoft.IdentityModel.Tokens.Saml
             var issuer = ValidateIssuer(samlToken.Issuer, samlToken, validationParameters);
             ValidateTokenReplay(samlToken.Assertion.Conditions.NotBefore, token, validationParameters);
             validatedToken = samlToken;
-            var identity = CreateClaimsIdentity(samlToken, issuer, validationParameters);
+            var identities = CreateClaimsIdentities(samlToken, issuer, validationParameters);
             if (validationParameters.SaveSigninToken)
-                identity.BootstrapContext = token;
+            {
+                foreach (var identity in identities)
+                {
+                    identity.BootstrapContext = token;
+                }
+            }
 
             IdentityModelEventSource.Logger.WriteInformation(TokenLogMessages.IDX10241, token);
 
-            return new ClaimsPrincipal(identity);
+            return new ClaimsPrincipal(identities);
         }
 
         /// <summary>

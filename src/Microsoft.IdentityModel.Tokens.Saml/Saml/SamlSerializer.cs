@@ -849,8 +849,13 @@ namespace Microsoft.IdentityModel.Tokens.Saml
                     // @xsi:type
                     XmlUtil.ValidateXsiType(reader, SamlConstants.Types.NameIDType, SamlConstants.Namespace);
 
-                    subject.NameFormat = reader.GetAttribute(SamlConstants.Attributes.NameIdentifierFormat, null);
-                    subject.NameQualifier = reader.GetAttribute(SamlConstants.Attributes.NameIdentifierNameQualifier, null);
+                    var nameFormat = reader.GetAttribute(SamlConstants.Attributes.NameIdentifierFormat, null);
+                    if (!string.IsNullOrEmpty(nameFormat))
+                        subject.NameFormat = nameFormat;
+
+                    var nameQualifier = reader.GetAttribute(SamlConstants.Attributes.NameIdentifierNameQualifier, null);
+                    if (!string.IsNullOrEmpty(nameQualifier))
+                        subject.NameQualifier = nameQualifier;
 
                     // TODO - check for empty element
                     reader.MoveToContent();
@@ -883,8 +888,12 @@ namespace Microsoft.IdentityModel.Tokens.Saml
 
                     // An Authentication protocol specified in the confirmation method might need this
                     // data. Just store this content value as string.
-                    if (reader.IsStartElement(SamlConstants.Elements.SubjectConfirmationData, SamlConstants.Namespace))                        
-                        subject.ConfirmationData = reader.ReadElementContentAsString();
+                    if (reader.IsStartElement(SamlConstants.Elements.SubjectConfirmationData, SamlConstants.Namespace))
+                    {
+                        var confirmationData = reader.ReadElementContentAsString();
+                        if (!string.IsNullOrEmpty(confirmationData))
+                            subject.ConfirmationData = confirmationData;
+                    }
 
                     if (reader.IsStartElement(XmlSignatureConstants.Elements.KeyInfo, XmlSignatureConstants.Namespace))
                     {

@@ -116,6 +116,64 @@ namespace Microsoft.IdentityModel.Tokens.Saml.Tests
         }
 
 #pragma warning disable CS3016 // Arrays as attribute arguments is not CLS-compliant
+        [Theory, MemberData("CreateClaimsIdentitysTheoryData")]
+#pragma warning restore CS3016 // Arrays as attribute arguments is not CLS-compliant
+        public void CreateClaimsIdentitys(SamlTheoryData theoryData)
+        {
+            TestUtilities.WriteHeader($"{this}.CreateClaimsIdentitys", theoryData);
+            var context = new CompareContext($"{this}.CreateClaimsIdentitys, {theoryData.TestId}");
+            try
+            {
+                var identities = ((theoryData.Handler) as DerivedSamlSecurityTokenHandler).CreateClaimsIdentitysPublic(theoryData.TokenClaimsIdentitiesTestSet.SecurityToken, theoryData.Issuer, theoryData.ValidationParameters);
+                theoryData.ExpectedException.ProcessNoException();
+
+                IdentityComparer.AreEqual(identities, theoryData.TokenClaimsIdentitiesTestSet.Identities, context);
+            }
+            catch (Exception ex)
+            {
+                theoryData.ExpectedException.ProcessException(ex);
+            }
+
+            TestUtilities.AssertFailIfErrors(context);
+        }
+
+        public static TheoryData<SamlTheoryData> CreateClaimsIdentitysTheoryData
+        {
+            get
+            {
+                return new TheoryData<SamlTheoryData>
+                {
+                    new SamlTheoryData
+                    {
+                        ExpectedException = new ExpectedException(typeof(SamlSecurityTokenException), "IDX10513:"),
+                        First = true,
+                        Handler = new DerivedSamlSecurityTokenHandler(),
+                        Issuer = Default.Issuer,
+                        TestId = nameof(ReferenceClaimsIdentities.TokenClaimsIdentitiesSubjectEmptyString),
+                        TokenClaimsIdentitiesTestSet = ReferenceClaimsIdentities.TokenClaimsIdentitiesSubjectEmptyString,
+                        ValidationParameters = new TokenValidationParameters()
+                    },
+                    new SamlTheoryData
+                    {
+                        Handler = new DerivedSamlSecurityTokenHandler(),
+                        Issuer = Default.Issuer,
+                        TestId = nameof(ReferenceClaimsIdentities.TokenClaimsIdentitiesSameSubject),
+                        TokenClaimsIdentitiesTestSet = ReferenceClaimsIdentities.TokenClaimsIdentitiesSameSubject,
+                        ValidationParameters = new TokenValidationParameters()
+                    },
+                    new SamlTheoryData
+                    {
+                        Handler = new DerivedSamlSecurityTokenHandler(),
+                        Issuer = Default.Issuer,
+                        TestId = nameof(ReferenceClaimsIdentities.TokenClaimsIdentitiesDifferentSubjects),
+                        TokenClaimsIdentitiesTestSet = ReferenceClaimsIdentities.TokenClaimsIdentitiesDifferentSubjects,
+                        ValidationParameters = new TokenValidationParameters()
+                    }
+                };
+            }
+        }
+
+#pragma warning disable CS3016 // Arrays as attribute arguments is not CLS-compliant
         [Theory, MemberData("ReadTokenTheoryData")]
 #pragma warning restore CS3016 // Arrays as attribute arguments is not CLS-compliant
         public void ReadToken(SamlTheoryData theoryData)
@@ -373,6 +431,11 @@ namespace Microsoft.IdentityModel.Tokens.Saml.Tests
 
         private class DerivedSamlSecurityTokenHandler : SamlSecurityTokenHandler
         {
+            public IEnumerable<ClaimsIdentity> CreateClaimsIdentitysPublic(SamlSecurityToken samlToken, string issuer, TokenValidationParameters validationParameters)
+            {
+                return base.CreateClaimsIdentities(samlToken, issuer, validationParameters);
+            }
+
             public string ValidateIssuerPublic(string issuer, SecurityToken token, TokenValidationParameters validationParameters)
             {
                 return base.ValidateIssuer(issuer, token, validationParameters);
