@@ -111,12 +111,14 @@ namespace Microsoft.IdentityModel.Tests
         public SamlEvidence Evidence { get; set; }
         public string Xml { get; set; }
     }
-#endregion
-    //public class SamlSecurityTokenTestSet
-    //{
-    //    public SamlSecurityToken SamlSecurityToken { get; set; }
-    //    public string Xml { get; set; }
-    //}
+
+    public class SamlSubjectTestSet
+    {
+        public SamlSubject Subject { get; set; }
+        public string Xml { get; set; }
+    }
+
+    #endregion
 
     public class TransformTestSet : XmlTestSet
     {
@@ -547,18 +549,12 @@ namespace Microsoft.IdentityModel.Tests
                 };
             }
         }
-    //public class SamlSubjectTestSet
-    //{
-    //    public SamlSubject Subject { get; set; }
-    //    public string Xml { get; set; }
-    //}
-//#endregion
+    }
 
-    //public class TokenClaimsIdentitiesTestSet
-    //{
-    //    public SamlSecurityToken SecurityToken { get; set; }
-    //    public IEnumerable<ClaimsIdentity> Identities { get; set; }
-    //}
+    public class TokenClaimsIdentitiesTestSet
+    {
+        public SamlSecurityToken SecurityToken { get; set; }
+        public IEnumerable<ClaimsIdentity> Identities { get; set; }
     }
 
     public class SamlSecurityTokenTestSet : XmlTestSet
